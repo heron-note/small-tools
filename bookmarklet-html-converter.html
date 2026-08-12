@@ -26,19 +26,19 @@
 
 <div class="card">
   <h1>🛠️ ブックマークレット ➔ 静的HTML コンバーター</h1>
-  <p>フォームにブックマークレット（javascript:...）を貼り付けると、仮想空間でレンダリングして静的HTML（<!DOCTYPE html>...）を抽出します。</p>
+  <p>フォームにブックマークレット（javascript:...）を貼り付けると、仮想空間でレンダリングして静的HTML（&lt;!DOCTYPE html&gt;...）を抽出します。</p>
   
   <textarea id="inputCode" placeholder="ここに javascript:(function(){...})(); を貼り付け"></textarea>
   
   <div class="btn-row">
-    <button onclick="convert()">⚡ 静的HTMLに変換・抽出</button>
-    <button class="secondary" onclick="clearAll()">クリア</button>
+    <button id="convertBtn">⚡ 静的HTMLに変換・抽出</button>
+    <button class="secondary" id="clearBtn">クリア</button>
   </div>
 
   <div class="result-area" id="resultArea">
     <div style="display:flex; justify-content:space-between; align-items:center;">
       <h2 style="font-size:16px; color:#cbd5e1;">📄 抽出された静的HTMLコード</h2>
-      <button onclick="copyResult()" style="padding:6px 12px; font-size:12px;">📋 コードをコピー</button>
+      <button id="copyBtn" style="padding:6px 12px; font-size:12px;">📋 コードをコピー</button>
     </div>
     <textarea id="outputCode" style="height: 180px; color: #10b981;" readonly></textarea>
 
@@ -50,17 +50,14 @@
 </div>
 
 <script>
-function convert() {
+document.getElementById('convertBtn').addEventListener('click', function() {
   var rawCode = document.getElementById('inputCode').value.trim();
   if (!rawCode) {
     alert('コードを入力してください。');
     return;
   }
 
-  // javascript: プレフィックスと末尾の不要箇所の掃除
   var cleanCode = rawCode.replace(/^javascript:/i, '').trim();
-
-  // iframeの参照と初期化
   var iframe = document.getElementById('previewFrame');
   var iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
 
@@ -68,27 +65,15 @@ function convert() {
   iframeDoc.write('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>');
   iframeDoc.close();
 
-  // iframe内部のコンソールエラー捕捉用
-  iframe.contentWindow.onerror = function(msg, url, line) {
-    console.error('iframe内部エラー:', msg, '行:', line);
-  };
-
   try {
-    // window.open の安全処理
     iframe.contentWindow.open = function() {
       return iframe.contentWindow;
     };
 
-    // 安全にスクリプトを安全挿入（Functionコンストラクタ経由でパースチェック）
     var scriptEl = iframeDoc.createElement('script');
-    
-    // </script> の文字が構文を破壊するのを防ぐエスケープ処理
-    var safeCode = cleanCode.replace(/<\/script>/gi, '<\\/script>');
-    scriptEl.text = safeCode;
-
+    scriptEl.text = cleanCode;
     iframeDoc.body.appendChild(scriptEl);
 
-    // レンダー完了を待ってHTMLを抽出
     setTimeout(function() {
       var fullHtml = '<!DOCTYPE html>\n' + iframeDoc.documentElement.outerHTML;
       document.getElementById('outputCode').value = fullHtml;
@@ -96,22 +81,22 @@ function convert() {
     }, 400);
 
   } catch (err) {
-    alert('コードの構文エラー（貼り付け漏れがないか確認してください）:\n' + err.message);
+    alert('コードの実行エラー:\n' + err.message);
   }
-}
+});
 
-function copyResult() {
+document.getElementById('copyBtn').addEventListener('click', function() {
   var out = document.getElementById('outputCode');
   out.select();
   document.execCommand('copy');
   alert('コピーしました！');
-}
+});
 
-function clearAll() {
+document.getElementById('clearBtn').addEventListener('click', function() {
   document.getElementById('inputCode').value = '';
   document.getElementById('outputCode').value = '';
   document.getElementById('resultArea').style.display = 'none';
-}
+});
 </script>
 
 </body>
