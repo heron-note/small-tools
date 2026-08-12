@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🛠️ ブックマークレット ➔ DOMモーダル化・静的HTMLコンバーター</title>
+<title>🛠️ ブックマークレット ➔ 静的HTML コンバーター</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   body { background-color: #0f172a; color: #f8fafc; padding: 24px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
   .card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; width: 100%; max-width: 900px; padding: 24px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 16px; }
   h1 { color: #38bdf8; font-size: 20px; font-weight: bold; }
-  p { font-size: 13px; color: #94a3b8; line-height: 1.5; }
+  p { font-size: 13px; color: #94a3b8; }
   textarea { width: 100%; height: 160px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px; color: #38bdf8; font-family: monospace; font-size: 12px; resize: vertical; }
   textarea:focus { outline: none; border-color: #38bdf8; }
   .btn-row { display: flex; gap: 12px; }
@@ -17,79 +17,86 @@
   button:hover { background: #0369a1; }
   button.secondary { background: #334155; }
   button.secondary:hover { background: #475569; }
-  .result-area { display: none; flex-direction: column; gap: 16px; margin-top: 12px; border-top: 1px solid #334155; padding-top: 16px; }
-  .iframe-container { width: 100%; height: 450px; background: #090d16; border-radius: 8px; overflow: hidden; border: 1px solid #334155; position: relative; }
+  .result-area { display: none; flex-direction: column; gap: 12px; margin-top: 12px; border-top: 1px solid #334155; padding-top: 16px; }
+  .iframe-container { width: 100%; height: 350px; background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #334155; }
   iframe { width: 100%; height: 100%; border: none; }
 </style>
 </head>
 <body>
 
 <div class="card">
-  <h1>🛠️ ブックマークレット ➔ DOM置換・静的HTMLコンバーター</h1>
-  <p>「別タブを開く（window.open）」コードを解析し、その場でページ内DOM（iframe）に安全に置換・描画して、静的HTMLを抽出します。</p>
+  <h1>🛠️ ブックマークレット ➔ 静的HTML コンバーター</h1>
+  <p>フォームにブックマークレット（javascript:...）を貼り付けると、仮想空間でレンダリングして静的HTML（<!DOCTYPE html>...）を抽出します。</p>
   
-  <textarea id="inputCode" placeholder="ここに既存のブックマークレット（javascript:...）を貼り付け"></textarea>
+  <textarea id="inputCode" placeholder="ここに javascript:(function(){...})(); を貼り付け"></textarea>
   
   <div class="btn-row">
-    <button onclick="convertAndRender()">⚡ DOM置換してその場で表示＆解析</button>
+    <button onclick="convert()">⚡ 静的HTMLに変換・抽出</button>
     <button class="secondary" onclick="clearAll()">クリア</button>
   </div>
 
   <div class="result-area" id="resultArea">
-    <h2 style="font-size:16px; color:#cbd5e1;">👁️ アプリ上でのDOM置換プレビュー</h2>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2 style="font-size:16px; color:#cbd5e1;">📄 抽出された静的HTMLコード</h2>
+      <button onclick="copyResult()" style="padding:6px 12px; font-size:12px;">📋 コードをコピー</button>
+    </div>
+    <textarea id="outputCode" style="height: 180px; color: #10b981;" readonly></textarea>
+
+    <h2 style="font-size:16px; color:#cbd5e1; margin-top:8px;">👁️ レンダリングプレビュー</h2>
     <div class="iframe-container">
       <iframe id="previewFrame"></iframe>
     </div>
-
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
-      <h2 style="font-size:16px; color:#cbd5e1;">📄 抽出された静的HTMLコード</h2>
-      <button onclick="copyResult()" style="padding:6px 12px; font-size:12px;">📋 HTMLをコピー</button>
-    </div>
-    <textarea id="outputCode" style="height: 180px; color: #10b981;" readonly></textarea>
   </div>
 </div>
 
 <script>
-function convertAndRender() {
+function convert() {
   var rawCode = document.getElementById('inputCode').value.trim();
   if (!rawCode) {
     alert('コードを入力してください。');
     return;
   }
 
-  // javascript: の除去
+  // javascript: プレフィックスと末尾の不要箇所の掃除
   var cleanCode = rawCode.replace(/^javascript:/i, '').trim();
 
+  // iframeの参照と初期化
   var iframe = document.getElementById('previewFrame');
   var iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
 
-  // 1. iframe内を初期化
   iframeDoc.open();
-  iframeDoc.write('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;"></body></html>');
+  iframeDoc.write('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>');
   iframeDoc.close();
 
+  // iframe内部のコンソールエラー捕捉用
+  iframe.contentWindow.onerror = function(msg, url, line) {
+    console.error('iframe内部エラー:', msg, '行:', line);
+  };
+
   try {
-    // 2. 別タブ処理（window.open）をアプリ上のDOM（iframe内自身）に置き換える「仮想モック」を注入
-    iframe.contentWindow.w = iframe.contentWindow;
+    // window.open の安全処理
     iframe.contentWindow.open = function() {
       return iframe.contentWindow;
     };
 
-    // 3. スクリプトを実行（別タブを開こうとする処理が、すべてこのiframeのDOM内にトラップ・描画される）
-    var script = iframeDoc.createElement('script');
-    script.textContent = cleanCode;
-    iframeDoc.body.appendChild(script);
+    // 安全にスクリプトを安全挿入（Functionコンストラクタ経由でパースチェック）
+    var scriptEl = iframeDoc.createElement('script');
+    
+    // </script> の文字が構文を破壊するのを防ぐエスケープ処理
+    var safeCode = cleanCode.replace(/<\/script>/gi, '<\\/script>');
+    scriptEl.text = safeCode;
 
-    // 4. 描画完了後、DOMから静的HTMLとして抽出
+    iframeDoc.body.appendChild(scriptEl);
+
+    // レンダー完了を待ってHTMLを抽出
     setTimeout(function() {
-      // document.write等で書き換わった後の完全なHTMLを取得
       var fullHtml = '<!DOCTYPE html>\n' + iframeDoc.documentElement.outerHTML;
       document.getElementById('outputCode').value = fullHtml;
       document.getElementById('resultArea').style.display = 'flex';
     }, 400);
 
   } catch (err) {
-    alert('解析・実行エラーが発生しました: ' + err.message);
+    alert('コードの構文エラー（貼り付け漏れがないか確認してください）:\n' + err.message);
   }
 }
 
@@ -97,7 +104,7 @@ function copyResult() {
   var out = document.getElementById('outputCode');
   out.select();
   document.execCommand('copy');
-  alert('静的HTMLコードをコピーしました！');
+  alert('コピーしました！');
 }
 
 function clearAll() {
