@@ -9,7 +9,7 @@
   body { background-color: #0f172a; color: #f8fafc; padding: 24px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
   .card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; width: 100%; max-width: 900px; padding: 24px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 16px; }
   h1 { color: #38bdf8; font-size: 20px; font-weight: bold; }
-  p { font-size: 13px; color: #94a3b8; }
+  p { font-size: 13px; color: #94a3b8; line-height: 1.5; }
   textarea { width: 100%; height: 160px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px; color: #38bdf8; font-family: monospace; font-size: 12px; resize: vertical; }
   textarea:focus { outline: none; border-color: #38bdf8; }
   .btn-row { display: flex; gap: 12px; flex-wrap: wrap; }
@@ -29,7 +29,7 @@
   .modal-title { color: #38bdf8; font-size: 16px; font-weight: bold; }
   .close-btn { background: #334155; color: #f8fafc; border: none; width: 32px; height: 32px; border-radius: 50%; font-size: 18px; font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; padding: 0; }
   .close-btn:hover { background: #ef4444; }
-  .iframe-container { width: 100%; flex: 1; background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #334155; }
+  .iframe-container { width: 100%; flex: 1; background: #0f172a; border-radius: 8px; overflow: hidden; border: 1px solid #334155; }
   iframe { width: 100%; height: 100%; border: none; }
 </style>
 </head>
@@ -37,29 +37,29 @@
 
 <div class="card">
   <h1>🛠️ ブックマークレット ➔ 静的HTML コンバーター</h1>
-  <p>フォームにブックマークレット（javascript:...）を貼り付けると、仮想空間でレンダリングして静的HTMLを抽出＆ポップアップでプレビュー表示します。</p>
+  <p>ブックマークレットコードから <code>window.open</code> などの新規タブ生成ラッパーを除去し、単体ファイルとしてそのまま動作・公開できる「完全動的HTML」に変換します。</p>
   
   <textarea id="inputCode" placeholder="ここに javascript:(function(){...})(); を貼り付け"></textarea>
   
   <div class="btn-row">
-    <button id="convertBtn">⚡ 静的HTMLに変換・抽出</button>
+    <button id="convertBtn">⚡ HTMLに変換・抽出</button>
     <button class="accent" id="reopenBtn" style="display:none;">👁️ プレビューを再表示</button>
     <button class="secondary" id="clearBtn">クリア</button>
   </div>
 
   <div class="result-area" id="resultArea">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2 style="font-size:16px; color:#cbd5e1;">📄 抽出された静的HTMLコード</h2>
+      <h2 style="font-size:16px; color:#cbd5e1;">📄 抽出された単体HTMLコード（そのまま保存して使用可能）</h2>
       <button id="copyBtn" style="padding:6px 12px; font-size:12px;">📋 コードをコピー</button>
     </div>
-    <textarea id="outputCode" style="height: 220px; color: #10b981;" readonly></textarea>
+    <textarea id="outputCode" style="height: 240px; color: #10b981;" readonly></textarea>
   </div>
 </div>
 
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal-card">
     <div class="modal-header">
-      <div class="modal-title">👁️ レンダリングプレビュー</div>
+      <div class="modal-title">👁️ 動作プレビュー（単体HTMLモード）</div>
       <button class="close-btn" id="closeModalBtn">&times;</button>
     </div>
     <div class="iframe-container">
@@ -78,37 +78,57 @@ document.getElementById('convertBtn').addEventListener('click', function() {
     return;
   }
 
-  var cleanCode = rawCode.replace(/^javascript:/i, '').trim();
+  // 1. 基本的なラッパー・接頭辞の除去
+  var cleanCode = rawCode.replace(/^javascript:\s*/i, '').trim();
+
+  // 2. タイトル文字列の抽出（d.title = '...' から取得）
+  var titleMatch = cleanCode.match(/d\.title\s*=\s*['"]([^'"]+)['"]/);
+  var docTitle = titleMatch ? titleMatch[1] : 'Web App';
+
+  // 3. window.open や head/body 補完コードの除去・正規化
+  // 以下の頻出イニシャライズ構文を通常ドキュメント用の定義に置換
+  var processedCode = cleanCode;
+
+  // window.open の除去
+  processedCode = processedCode.replace(/var\s+w\s*=\s*window\.open\([^)]*\)\s*;\s*(?:if\s*\(!w\)\s*return\s*;)?/g, 'var w = window;');
+  processedCode = processedCode.replace(/const\s+w\s*=\s*window\.open\([^)]*\)\s*;\s*(?:if\s*\(!w\)\s*return\s*;)?/g, 'var w = window;');
+  
+  // head/body 補完構文の簡素化（通常のHTML内ではすでに head/body が存在するため）
+  processedCode = processedCode.replace(/var\s+head\s*=\s*d\.head[^;]+;\s*if\s*\(!d\.head\)[^;]+;/g, 'var head = d.head;');
+  processedCode = processedCode.replace(/var\s+body\s*=\s*d\.body[^;]+;\s*if\s*\(!d\.body\)[^;]+;/g, 'var body = d.body;');
+  processedCode = processedCode.replace(/const\s+head\s*=\s*d\.head[^;]+;\s*if\s*\(!d\.head\)[^;]+;/g, 'var head = d.head;');
+  processedCode = processedCode.replace(/const\s+body\s*=\s*d\.body[^;]+;\s*if\s*\(!d\.body\)[^;]+;/g, 'var body = d.body;');
+
+  // 末尾の void(0) などを除去
+  processedCode = processedCode.replace(/;?\s*void\(0\);?$/i, ';');
+
+  // 4. 単独で完結する完全なHTMLテンプレートを構築
+  var finalHtml = '<!DOCTYPE html>\n' +
+    '<html lang="ja">\n' +
+    '<head>\n' +
+    '  <meta charset="utf-8">\n' +
+    '  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+    '  <title>' + docTitle + '</title>\n' +
+    '</head>\n' +
+    '<body>\n' +
+    '  <script>\n' +
+    '  // 単体HTML実行用に変換されたコード\n' +
+    '  ' + processedCode + '\n' +
+    '  <\/script>\n' +
+    '</body>\n' +
+    '</html>';
+
+  // 5. プレビュー用 iframe に流し込み
   var iframe = document.getElementById('previewFrame');
-  var iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+  iframe.srcdoc = finalHtml;
 
-  iframeDoc.open();
-  iframeDoc.write('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>');
-  iframeDoc.close();
+  // 6. 出力欄に反映
+  document.getElementById('outputCode').value = finalHtml;
+  document.getElementById('resultArea').style.display = 'flex';
+  document.getElementById('reopenBtn').style.display = 'inline-block';
+  hasResult = true;
 
-  try {
-    iframe.contentWindow.open = function() {
-      return iframe.contentWindow;
-    };
-
-    var scriptEl = iframeDoc.createElement('script');
-    scriptEl.text = cleanCode;
-    iframeDoc.body.appendChild(scriptEl);
-
-    setTimeout(function() {
-      var fullHtml = '<!DOCTYPE html>\n' + iframeDoc.documentElement.outerHTML;
-      document.getElementById('outputCode').value = fullHtml;
-      document.getElementById('resultArea').style.display = 'flex';
-      document.getElementById('reopenBtn').style.display = 'inline-block';
-      hasResult = true;
-      
-      // 自動でポップアップを表示
-      openModal();
-    }, 400);
-
-  } catch (err) {
-    alert('コードの実行エラー:\n' + err.message);
-  }
+  openModal();
 });
 
 function openModal() {
@@ -124,7 +144,6 @@ function closeModal() {
 document.getElementById('reopenBtn').addEventListener('click', openModal);
 document.getElementById('closeModalBtn').addEventListener('click', closeModal);
 
-// 背景の黒い部分をタップ（クリック）しても閉じられるように設定
 document.getElementById('modalOverlay').addEventListener('click', function(e) {
   if (e.target === this) {
     closeModal();
@@ -135,7 +154,7 @@ document.getElementById('copyBtn').addEventListener('click', function() {
   var out = document.getElementById('outputCode');
   out.select();
   document.execCommand('copy');
-  alert('コピーしました！');
+  alert('HTMLコードをコピーしました！');
 });
 
 document.getElementById('clearBtn').addEventListener('click', function() {
