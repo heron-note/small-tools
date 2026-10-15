@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Image Crop & RGB565 Converter</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background: #222; color: #eee; }
+        .container { max-width: 900px; margin: auto; background: #333; padding: 20px; border-radius: 8px; }
+        h1 { font-size: 18px; }
+        .box { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="number"] { width: 60px; padding: 4px; background: #444; color: #fff; border: 1px solid #555; }
+        
+        /* クロップエリアのコンテナ */
+        #editor-container {
+            position: relative;
+            display: inline-block;
+            overflow: hidden;
+            border: 1px solid #666;
+            max-width: 100%;
+            background: #111;
+        }
+        #sourceCanvas {
+            display: block;
+            cursor: grab;
+        }
+        #sourceCanvas:active {
+            cursor: grabbing;
+        }
+
+        /* 視覚的なクロップ枠（オーバーレイ） */
+        #cropOverlay {
+            position: absolute;
+            border: 2px dashed #00ffcc;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+            pointer-events: none; /* マウスイベントを下のキャンバスに通す */
+        }
+
+        textarea { width: 100%; height: 180px; font-family: monospace; font-size: 12px; padding: 10px; box-sizing: border-box; background: #222; color: #0f0; border: 1px solid #555; }
+        button { padding: 8px 15px; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .info { font-size: 12px; color: #aaa; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>画面調整付き クロップ & RGB565 変換ツール</h1>
+    
+    <div class="box">
+        <label>1. 画像を選択</label>
+        <input type="file" id="imageInput" accept="image/*">
+    </div>
+
+    <div class="box">
+        <label>2. ターゲット解像度 (ディスプレイの仕様)</label>
+        幅: <input type="number" id="targetWidth" value="170"> × 
+        高さ: <input type="number" id="targetHeight" value="320">
+        <button id="updateSizeBtn" style="margin-left: 10px;">サイズ適用</button>
+    </div>
+
+    <div class="box">
+        <label>3. クロップ位置とズームの調整</label>
+        <div class="info">※下の画像の上でマウスドラッグして移動、またはスライダーで拡大縮小してください。枠内がディスプレイに書き出されます。</div>
+        <div style="margin: 8px 0;">
+            拡大率: <input type="range" id="zoomRange" min="0.1" max="3" step="0.05" value="1" style="width: 200px;">
+            <span id="zoomVal">1.0x</span>
+        </div>
+        
+        <div id="editor-container">
+            <canvas id="sourceCanvas"></canvas>
+            <div id="cropOverlay"></div>
+        </div>
+    </div>
+
+    <div class="box">
+        <button id="generateBtn">4. C言語配列を生成する</button>
+    </div>
+
+    <div class="box">
+        <label>生成されたC配列コード (Arduino用)</label>
+        <textarea id="outputCode" readonly placeholder="「C言語配列を生成する」ボタンを押すとここにコードが出力されます"></textarea>
+    </div>
+</div>
+
+<script>
+const imageInput = document.getElementById('imageInput');
+const targetWidthInput = document.getElementById('targetWidth');
+const targetHeightInput = document.getElementById('targetHeight');
+const updateSizeBtn = document.getElementById('updateSizeBtn');
+const zoomRange = document.getElementById('zoomRange');
+const zoomVal = document.getElementById('zoomVal');
+const sourceCanvas = document.getElementById('sourceCanvas');
+const ctx = sourceCanvas.getContext('2d');
+const cropOverlay = document.getElementById('cropOverlay');
+const generateBtn = document.getElementById('generateBtn');
+const outputCode = document.getElementById('outputCode');
+
+let img = new Image();
+let imageLoaded = false;
+
+// 視覚的プレビュー上のクロップ枠の大きさ（ディスプレイのアスペクト比を維持）
+let boxW = 170;
+let boxH = 320;
+
+// 画像の表示上の位置・スケール
+let imgX = 0;
+let imgY = 0;
+let imgScale = 1;
+
+let isDragging = false;
+let startX, startY;
+
+imageInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        img.onload = () => {
+            imageLoaded = true;
+            initEditor();
+        };
+        img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+});
+
+updateSizeBtn.addEventListener('click', () => {
+    if (imageLoaded) initEditor();
+});
+
+function initEditor() {
+    const tW = parseInt(targetWidthInput.value) || 170;
+    const tH = parseInt(targetHeightInput.value) || 320;
+
+    // プレビュー枠のサイズをアスペクト比を保ちつつ画面に収まる大きさに調整（最大幅400px基準など）
+    const maxPreviewW = 400;
+    const ratio = tH / tW;
+    boxW = maxPreviewW;
+    boxH = maxPreviewW * ratio;
+
+    // キャンバスのサイズをプレビュー用に決定（枠の数倍のキャンバスにするなど）
+    sourceCanvas.width = boxW * 2.5;
+    sourceCanvas.height = boxH * 2.5;
+
+    cropOverlay.style.width = boxW + 'px';
+    cropOverlay.style.height = boxH + 'px';
+    // 枠を中央に固定配置
+    cropOverlay.style.left = (sourceCanvas.width - boxW) / 2 + 'px';
+    cropOverlay.style.top = (sourceCanvas.height - boxH) / 2 + 'px';
+
+    // 初期ズームと画像の初期位置（枠に収まるように）
+    imgScale = Math.max(boxW / img.width, boxH / img.height);
+    zoomRange.min = imgScale * 0.5;
+    zoomRange.max = imgScale * 5;
+    zoomRange.step = 0.01;
+    zoomRange.value = imgScale;
+    zoomVal.textContent = imgScale.toFixed(2) + 'x';
+
+    imgX = (sourceCanvas.width - img.width * imgScale) / 2;
+    imgY = (sourceCanvas.height - img.height * imgScale) / 2;
+
+    drawCanvas();
+}
+
+function drawCanvas() {
+    if (!imageLoaded) return;
+    ctx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+    ctx.drawImage(img, imgX, imgY, img.width * imgScale, img.height * imgScale);
+}
+
+// マウスドラッグで画像を移動
+sourceCanvas.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    startX = e.clientX - imgX;
+    startY = e.clientY - imgY;
+});
+
+window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    imgX = e.clientX - startX;
+    imgY = e.clientY - startY;
+    drawCanvas();
+});
+
+window.addEventListener('mouseup', () => {
+    isDragging = false;
+});
+
+// ズーム変更
+zoomRange.addEventListener('input', (e) => {
+    if (!imageLoaded) return;
+    const newScale = parseFloat(e.target.value);
+    
+    // 中心基準で拡大縮小
+    const cx = sourceCanvas.width / 2;
+    const cy = sourceCanvas.height / 2;
+    
+    imgX = cx - (cx - imgX) * (newScale / imgScale);
+    imgY = cy - (cy - imgY) * (newScale / imgScale);
+    
+    imgScale = newScale;
+    zoomVal.textContent = imgScale.toFixed(2) + 'x';
+    drawCanvas();
+});
+
+// C配列生成処理
+generateBtn.addEventListener('click', () => {
+    if (!imageLoaded) {
+        alert('画像が選択されていません');
+        return;
+    }
+
+    const tW = parseInt(targetWidthInput.value) || 170;
+    const tH = parseInt(targetHeightInput.value) || 320;
+
+    // オフスクリーンキャンバスでターゲット解像度に切り出し＆リサイズ
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = tW;
+    offCanvas.height = tH;
+    const offCtx = offCanvas.getContext('2d');
+
+    // プレビュー上のクロップ枠の位置（キャンバス座標系）
+    const overlayLeft = (sourceCanvas.width - boxW) / 2;
+    const overlayTop = (sourceCanvas.height - boxH) / 2;
+
+    // プレビュー座標から実際の元画像座標への逆算
+    const sX = (overlayLeft - imgX) / imgScale;
+    const sY = (overlayTop - imgY) / imgScale;
+    const sW = boxW / imgScale;
+    const sH = boxH / imgScale;
+
+    // ターゲット解像度に描き出し
+    offCtx.drawImage(img, sX, sY, sW, sH, 0, 0, tW, tH);
+
+    const imgData = offCtx.getImageData(0, 0, tW, tH);
+    const pixels = imgData.data;
+    let hexArray = [];
+
+    for (let i = 0; i < pixels.length; i += 4) {
+        let r = pixels[i];
+        let g = pixels[i+1];
+        let b = pixels[i+2];
+
+        // RGB565変換
+        let rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        hexArray.push('0x' + rgb565.toString(16).padStart(4, '0').toUpperCase());
+    }
+
+    // C配列コード構築
+    let code = `#include <stdint.h>\n\n`;
+    code += `const int IMAGE_WIDTH = ${tW};\n`;
+    code += `const int IMAGE_HEIGHT = ${tH};\n\n`;
+    code += `const uint16_t PROGMEM IMAGE_DATA[] = {\n`;
+
+    for (let i = 0; i < hexArray.length; i += 16) {
+        let chunk = hexArray.slice(i, i + 16);
+        code += '  ' + chunk.join(', ') + ',\n';
+    }
+    code += `};\n`;
+
+    outputCode.value = code;
+});
+</script>
+
+</body>
+</html>
