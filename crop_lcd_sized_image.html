@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Image Crop & RGB565 Converter</title>
+    <title>Image Crop & RGB565 Converter (320x170)</title>
     <style>
         body { font-family: sans-serif; margin: 20px; background: #222; color: #eee; }
         .container { max-width: 900px; margin: auto; background: #333; padding: 20px; border-radius: 8px; }
@@ -11,7 +11,6 @@
         label { display: block; margin-bottom: 5px; font-weight: bold; }
         input[type="number"] { width: 60px; padding: 4px; background: #444; color: #fff; border: 1px solid #555; }
         
-        /* クロップエリアのコンテナ */
         #editor-container {
             position: relative;
             display: inline-block;
@@ -28,12 +27,11 @@
             cursor: grabbing;
         }
 
-        /* 視覚的なクロップ枠（オーバーレイ） */
         #cropOverlay {
             position: absolute;
             border: 2px dashed #00ffcc;
             box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
-            pointer-events: none; /* マウスイベントを下のキャンバスに通す */
+            pointer-events: none;
         }
 
         textarea { width: 100%; height: 180px; font-family: monospace; font-size: 12px; padding: 10px; box-sizing: border-box; background: #222; color: #0f0; border: 1px solid #555; }
@@ -45,7 +43,7 @@
 <body>
 
 <div class="container">
-    <h1>画面調整付き クロップ & RGB565 変換ツール</h1>
+    <h1>画面調整付き クロップ & RGB565 変換ツール (320x170 横長対応)</h1>
     
     <div class="box">
         <label>1. 画像を選択</label>
@@ -54,14 +52,14 @@
 
     <div class="box">
         <label>2. ターゲット解像度 (ディスプレイの仕様)</label>
-        幅: <input type="number" id="targetWidth" value="170"> × 
-        高さ: <input type="number" id="targetHeight" value="320">
+        幅: <input type="number" id="targetWidth" value="320"> × 
+        高さ: <input type="number" id="targetHeight" value="170">
         <button id="updateSizeBtn" style="margin-left: 10px;">サイズ適用</button>
     </div>
 
     <div class="box">
         <label>3. クロップ位置とズームの調整</label>
-        <div class="info">※下の画像の上でマウスドラッグして移動、またはスライダーで拡大縮小してください。枠内がディスプレイに書き出されます。</div>
+        <div class="info">※画像の上でマウスドラッグして移動、スライダーで拡大縮小してください。枠内が320x170ピクセルに切り出されます。</div>
         <div style="margin: 8px 0;">
             拡大率: <input type="range" id="zoomRange" min="0.1" max="3" step="0.05" value="1" style="width: 200px;">
             <span id="zoomVal">1.0x</span>
@@ -99,11 +97,8 @@ const outputCode = document.getElementById('outputCode');
 let img = new Image();
 let imageLoaded = false;
 
-// 視覚的プレビュー上のクロップ枠の大きさ（ディスプレイのアスペクト比を維持）
-let boxW = 170;
-let boxH = 320;
-
-// 画像の表示上の位置・スケール
+let boxW = 320;
+let boxH = 170;
 let imgX = 0;
 let imgY = 0;
 let imgScale = 1;
@@ -130,28 +125,25 @@ updateSizeBtn.addEventListener('click', () => {
 });
 
 function initEditor() {
-    const tW = parseInt(targetWidthInput.value) || 170;
-    const tH = parseInt(targetHeightInput.value) || 320;
+    const tW = parseInt(targetWidthInput.value) || 320;
+    const tH = parseInt(targetHeightInput.value) || 170;
 
-    // プレビュー枠のサイズをアスペクト比を保ちつつ画面に収まる大きさに調整（最大幅400px基準など）
-    const maxPreviewW = 400;
-    const ratio = tH / tW;
+    // プレビュー枠の大きさを決定（幅基準で最大500pxなどに調整）
+    const maxPreviewW = 500;
+    const ratio = tH / tW; // 高さ / 幅
     boxW = maxPreviewW;
     boxH = maxPreviewW * ratio;
 
-    // キャンバスのサイズをプレビュー用に決定（枠の数倍のキャンバスにするなど）
     sourceCanvas.width = boxW * 2.5;
     sourceCanvas.height = boxH * 2.5;
 
     cropOverlay.style.width = boxW + 'px';
     cropOverlay.style.height = boxH + 'px';
-    // 枠を中央に固定配置
     cropOverlay.style.left = (sourceCanvas.width - boxW) / 2 + 'px';
     cropOverlay.style.top = (sourceCanvas.height - boxH) / 2 + 'px';
 
-    // 初期ズームと画像の初期位置（枠に収まるように）
     imgScale = Math.max(boxW / img.width, boxH / img.height);
-    zoomRange.min = imgScale * 0.5;
+    zoomRange.min = imgScale * 0.3;
     zoomRange.max = imgScale * 5;
     zoomRange.step = 0.01;
     zoomRange.value = imgScale;
@@ -169,7 +161,6 @@ function drawCanvas() {
     ctx.drawImage(img, imgX, imgY, img.width * imgScale, img.height * imgScale);
 }
 
-// マウスドラッグで画像を移動
 sourceCanvas.addEventListener('mousedown', (e) => {
     isDragging = true;
     startX = e.clientX - imgX;
@@ -187,12 +178,9 @@ window.addEventListener('mouseup', () => {
     isDragging = false;
 });
 
-// ズーム変更
 zoomRange.addEventListener('input', (e) => {
     if (!imageLoaded) return;
     const newScale = parseFloat(e.target.value);
-    
-    // 中心基準で拡大縮小
     const cx = sourceCanvas.width / 2;
     const cy = sourceCanvas.height / 2;
     
@@ -204,33 +192,28 @@ zoomRange.addEventListener('input', (e) => {
     drawCanvas();
 });
 
-// C配列生成処理
 generateBtn.addEventListener('click', () => {
     if (!imageLoaded) {
         alert('画像が選択されていません');
         return;
     }
 
-    const tW = parseInt(targetWidthInput.value) || 170;
-    const tH = parseInt(targetHeightInput.value) || 320;
+    const tW = parseInt(targetWidthInput.value) || 320;
+    const tH = parseInt(targetHeightInput.value) || 170;
 
-    // オフスクリーンキャンバスでターゲット解像度に切り出し＆リサイズ
     const offCanvas = document.createElement('canvas');
     offCanvas.width = tW;
     offCanvas.height = tH;
     const offCtx = offCanvas.getContext('2d');
 
-    // プレビュー上のクロップ枠の位置（キャンバス座標系）
     const overlayLeft = (sourceCanvas.width - boxW) / 2;
     const overlayTop = (sourceCanvas.height - boxH) / 2;
 
-    // プレビュー座標から実際の元画像座標への逆算
     const sX = (overlayLeft - imgX) / imgScale;
     const sY = (overlayTop - imgY) / imgScale;
     const sW = boxW / imgScale;
     const sH = boxH / imgScale;
 
-    // ターゲット解像度に描き出し
     offCtx.drawImage(img, sX, sY, sW, sH, 0, 0, tW, tH);
 
     const imgData = offCtx.getImageData(0, 0, tW, tH);
@@ -242,12 +225,10 @@ generateBtn.addEventListener('click', () => {
         let g = pixels[i+1];
         let b = pixels[i+2];
 
-        // RGB565変換
         let rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
         hexArray.push('0x' + rgb565.toString(16).padStart(4, '0').toUpperCase());
     }
 
-    // C配列コード構築
     let code = `#include <stdint.h>\n\n`;
     code += `const int IMAGE_WIDTH = ${tW};\n`;
     code += `const int IMAGE_HEIGHT = ${tH};\n\n`;
