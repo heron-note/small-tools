@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 BLE Webコントローラー</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            text-align: center;
+            margin-top: 50px;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        button {
+            display: block;
+            width: 100%;
+            margin: 15px 0;
+            padding: 14px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #fff;
+            background-color: #007bff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        #status {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #666;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>ESP32 BLE コントローラー</h2>
+    <p id="status">未接続</p>
+    
+    <button id="connectBtn" onclick="connectBLE()">ESP32に接続する</button>
+    <button id="sendBtn" onclick="sendData('Hello from Web!')" disabled>「Hello」を送信</button>
+    <button id="ledOnBtn" onclick="sendData('LED_ON')" disabled>LEDをON（仮）</button>
+    <button id="ledOffBtn" onclick="sendData('LED_OFF')" disabled>LEDをOFF（仮）</button>
+</div>
+
+<script>
+    // ESP32のコードで定義したUUIDと一致させています
+    const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+    const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a9";
+
+    let bluetoothDevice = null;
+    let bleCharacteristic = null;
+
+    const statusEl = document.getElementById('status');
+    const connectBtn = document.getElementById('connectBtn');
+    const sendBtn = document.getElementById('sendBtn');
+    const ledOnBtn = document.getElementById('ledOnBtn');
+    const ledOffBtn = document.getElementById('ledOffBtn');
+
+    async function connectBLE() {
+        try {
+            statusEl.innerText = "デバイスをスキャン中...";
+
+            // 1. ESP32（指定したサービスUUIDを持つもの）をリクエスト
+            bluetoothDevice = await navigator.bluetooth.requestDevice({
+                filters: [{ name: 'ESP32-BLE-Device' }],
+                optionalServices: [SERVICE_UUID]
+            });
+
+            // 切断時のイベントリスナー
+            bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+            statusEl.innerText = "GATTサーバーに接続中...";
+            const server = await bluetoothDevice.gatt.connect();
+
+            statusEl.innerText = "サービスを取得中...";
+            const service = await server.getPrimaryService(SERVICE_UUID);
+
+            statusEl.innerText = "キャラリスティックを取得中...";
+            bleCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+            // 接続成功！UIを切り替え
+            statusEl.innerText = "接続完了: " + bluetoothDevice.name;
+            connectBtn.innerText = "切断する";
+            connectBtn.onclick = disconnectBLE;
+            
+            sendBtn.disabled = false;
+            ledOnBtn.disabled = false;
+            ledOffBtn.disabled = false;
+
+        } catch (error) {
+            console.error(error);
+            statusEl.innerText = "接続エラー: " + error;
+        }
+    }
+
+    async function sendData(message) {
+        if (!bleCharacteristic) {
+            alert("デバイスが接続されていません。");
+            return;
+        }
+        try {
+            const encoder = new TextEncoder();
+            await bleCharacteristic.writeValue(encoder.encode(message));
+            statusEl.innerText = "送信成功: " + message;
+        } catch (error) {
+            console.error(error);
+            statusEl.innerText = "送信エラー: " + error;
+        }
+    }
+
+    function disconnectBLE() {
+        if (bluetoothDevice && bluetoothDevice.gatt.connected) {
+            bluetoothDevice.gatt.disconnect();
+        }
+    }
+
+    function onDisconnected(event) {
+        statusEl.innerText = "接続が切れました。";
+        connectBtn.innerText = "ESP32に接続する";
+        connectBtn.onclick = connectBLE;
+
+        sendBtn.disabled = true;
+        ledOnBtn.disabled = true;
+        ledOffBtn.disabled = true;
+        bleCharacteristic = null;
+        bluetoothDevice = null;
+    }
+</script>
+
+</body>
+</html>
