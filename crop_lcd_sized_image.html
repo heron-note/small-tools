@@ -229,8 +229,7 @@ generateBtn.addEventListener('click', () => {
         hexArray.push('0x' + rgb565.toString(16).padStart(4, '0').toUpperCase());
     }
 
-    let code = `#include <stdint.h>\n\n`;
-    code += `const int IMAGE_WIDTH = ${tW};\n`;
+    let code = `const int IMAGE_WIDTH = ${tW};\n`;
     code += `const int IMAGE_HEIGHT = ${tH};\n\n`;
     code += `const uint16_t PROGMEM IMAGE_DATA[] = {\n`;
 
